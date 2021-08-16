@@ -1,0 +1,193 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "AWS CloudFormation template to deploy the avatr stack in aws cloud",
+    "Properties": {
+        "DomainName": {
+            "Description": "Domain name for the website",
+            "Type": "String"
+        }
+    },
+    "Resources": {
+        "AvatrHostedZone": {
+            "Type": "AWS::Route53::HostedZone",
+            "Properties": {
+                "HostedZoneConfig": {
+                    "Comment": "Avatr Hosted Zone"
+                },
+                "Name": { "Ref": "DomainName" }
+            }
+        },
+
+        "AvatrS3Bucket": {
+            "Type": "AWS::S3::Bucket",
+            "Properties": {
+                "AccessControl": "Private"
+            },
+            "DeletionPolicy": "Retain"
+        },
+
+        "AvatrS3BucketPolicy": {
+            "Type": "AWS::S3::BucketPolicy",
+            "Properties": {
+                "Bucket": { "Ref": "AvatrS3Bucket" },
+                "PolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Id": "AvatarS3Bucket Read Access",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                "AWS": { "Fn::Join": [ " ", [ "arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity", { "Ref": "AvatrOriginAccessIdentity" } ] ] }
+                            },
+                            "Action": "s3:GetObject",
+                            "Resource": { "Fn::Join": [ "/", [ { "Fn::GetAtt": [ "AvatrS3Bucket", "Arn" ] }, "*" ] ]}
+                        }
+                    ]
+                }
+            }
+        },
+
+        "AvatrOriginAccessIdentity": {
+            "Type": "AWS::CloudFront::CloudFrontOriginAccessIdentity",
+            "Properties": {
+                "CloudFrontOriginAccessIdentityConfig": {
+                    "Comment": "OAI for Avatar S3 bucket access"
+                }
+            }
+        },
+
+        "AvatrCachePolicy": {
+            "Type": "AWS::CloudFront::CachePolicy",
+            "Properties": {
+                "CachePolicyConfig": {
+                    "Comment": "Default Avatr cloudfront cache policy",
+                    "Name": "default-cache-policy",
+                    "DefaultTTL": 86400,
+                    "MaxTTL": 31536000,
+                    "MinTTL": 86400,
+                    "ParametersInCacheKeyAndForwardedToOrigin": {
+                        "EnableAcceptEncodingGzip": true,
+                        "EnableAcceptEncodingBrotli": true,
+                        "CookiesConfig": {
+                            "CookieBehavior": "none"
+                        },
+                        "HeadersConfig": {
+                            "HeaderBehavior": "none"
+                        },
+                        "QueryStringsConfig": {
+                            "QueryStringsBehavior": "none"
+                        }
+                    }
+                }
+            }
+        },
+
+        "AvatrOriginRequestPolicy": {
+            "Type": "AWS::CloudFront::OriginRequestPolicy",
+            "Properties": {
+                "OriginRequestPolicyConfig": {
+                    "Comment": "Default Avatr cloudfront request policy",
+                    "Name": "default-request-policy",
+                    "CookiesConfig": {
+                        "CookieBehavior": "none"
+                    },
+                    "HeadersConfig": {
+                        "HeaderBehavior": "none"
+                    },
+                    "QueryStringsConfig": {
+                        "QueryStringsBehavior": "none"
+                    }
+                }
+            }
+        },
+
+        "AvatrCertificate": {
+            "Type": "AWS::CretificateManager::Certificate",
+            "Properties": {
+                "CertificateTransparencyLoggingPreference": "ENABLED",
+                "DomainName": { "Ref": "DomainName" },
+                "ValidationMethod": "DNS",
+                "DomainValidationOptions": [{
+                    "DomainName": { "Ref": "DomainName" },
+                    "HostedZoneId": { "Ref": "AvatrHostedZone" }
+                }]
+            }
+        },
+
+        "AvatrCloudFrontDistribution": {
+            "Type": "AWS::CloudFront::Distribution",
+            "Properties": {
+                "DistributionConfig": {
+                    "Comment": "Default Avatr cloudfront distribution",
+                    "Aliases": [ { "Ref": "DomainName" } ],
+                    "Origins": [{ 
+                        "DomainName": { "Fn::GetAtt": [ "AvatrS3Bucket", "RegionalDomainName" ]},
+                        "Id": "S3Origin",
+                        "S3OriginConfig": {
+                            "OriginAccessIdentity": { "Fn::Join": 
+                                ["/", ["origin-access-identity", "cloudfront", { "Fn::GetAtt": [ "AvatrOriginAccessIdentity", "ID" ]}]]
+                            }
+                        }
+                    }],
+                    "DefaultCacheBehavior": {
+                        "AllowedMethods": [ "GET", "HEAD" ],
+                        "CachedMethods": [ "GET", "HEAD" ],
+                        "Compress": true,
+                        "TargetOriginId": { "Ref": "AvatrOriginAccessIdentity" },
+                        "ViewerProtocolPolicy": "redirect-to-https",
+                        "CachePolicyId": { "Ref": "AvatrCachePolicy" },
+                        "RequestPolicyId": { "Ref": "AvatrOriginRequestPolicy" }
+                    },
+                    "DefaultRootObject": "index.html",
+                    "Enabled": true,
+                    "HttpVersion": "http2",
+                    "IPV6Enabled": true,
+                    "Logging": {
+                        "Enabled": false,
+                        "Bucket": "",
+                        "Prefix": ""
+                    },
+                    "ViewerCertificate": {
+                        "SslSupportMethod": "sni-only",
+                        "MinimumProtocolVersion": "TLSv1.2_2018",
+                        "CloudFrontDefaultCertificate": false,
+                        "AcmCertificateArn": { "Ref": "AvatrCertificate" }
+                    }
+                }
+            }
+        }
+
+    },
+    "Outputs": {
+        "HostedZone": {
+            "Value": {
+                "Ref": "AvatrHostedZone"
+            },
+            "Description": "Route53 HostedZoneId"
+        },
+        "Certificate": {
+            "Value": {
+                "Ref": "AvatrCertificate"
+            },
+            "Description": "Acm Certificate Arn"
+        },
+        "Bucket": {
+            "Value": {
+                "Ref": "AvatrS3Bucket"
+            },
+            "Description": "S3 Bucket"
+        },
+        "CloudFront": {
+            "Value": {
+                "Ref": "AvatrCloudFrontDistribution"
+            },
+            "Description": "S3 Bucket"
+        },
+        "Url": {
+            "Value": {
+                "Ref": "DomainName"
+            },
+            "Description": "Website URL"
+        }
+    }
+}
