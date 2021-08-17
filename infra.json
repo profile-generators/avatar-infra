@@ -1,7 +1,7 @@
 {
     "AWSTemplateFormatVersion": "2010-09-09",
     "Description": "AWS CloudFormation template to deploy the avatr stack in aws cloud",
-    "Properties": {
+    "Parameters": {
         "DomainName": {
             "Description": "Domain name for the website",
             "Type": "String"
@@ -15,7 +15,9 @@
                     "Comment": "Avatr Hosted Zone"
                 },
                 "Name": { "Ref": "DomainName" }
-            }
+            },
+            "DeletionPolicy": "Retain",
+            "UpdateReplacePolicy": "Retain"
         },
 
         "AvatrS3Bucket": {
@@ -23,7 +25,8 @@
             "Properties": {
                 "AccessControl": "Private"
             },
-            "DeletionPolicy": "Retain"
+            "DeletionPolicy": "Retain",
+            "UpdateReplacePolicy": "Retain"
         },
 
         "AvatrS3BucketPolicy": {
@@ -75,7 +78,7 @@
                             "HeaderBehavior": "none"
                         },
                         "QueryStringsConfig": {
-                            "QueryStringsBehavior": "none"
+                            "QueryStringBehavior": "none"
                         }
                     }
                 }
@@ -95,14 +98,14 @@
                         "HeaderBehavior": "none"
                     },
                     "QueryStringsConfig": {
-                        "QueryStringsBehavior": "none"
+                        "QueryStringBehavior": "none"
                     }
                 }
             }
         },
 
         "AvatrCertificate": {
-            "Type": "AWS::CretificateManager::Certificate",
+            "Type": "AWS::CertificateManager::Certificate",
             "Properties": {
                 "CertificateTransparencyLoggingPreference": "ENABLED",
                 "DomainName": { "Ref": "DomainName" },
@@ -125,7 +128,7 @@
                         "Id": "S3Origin",
                         "S3OriginConfig": {
                             "OriginAccessIdentity": { "Fn::Join": 
-                                ["/", ["origin-access-identity", "cloudfront", { "Fn::GetAtt": [ "AvatrOriginAccessIdentity", "ID" ]}]]
+                                ["/", ["origin-access-identity", "cloudfront", { "Fn::GetAtt": [ "AvatrOriginAccessIdentity", "Id" ]}]]
                             }
                         }
                     }],
@@ -136,24 +139,48 @@
                         "TargetOriginId": { "Ref": "AvatrOriginAccessIdentity" },
                         "ViewerProtocolPolicy": "redirect-to-https",
                         "CachePolicyId": { "Ref": "AvatrCachePolicy" },
-                        "RequestPolicyId": { "Ref": "AvatrOriginRequestPolicy" }
+                        "OriginRequestPolicyId": { "Ref": "AvatrOriginRequestPolicy" }
                     },
                     "DefaultRootObject": "index.html",
                     "Enabled": true,
                     "HttpVersion": "http2",
                     "IPV6Enabled": true,
                     "Logging": {
-                        "Enabled": false,
                         "Bucket": "",
                         "Prefix": ""
                     },
                     "ViewerCertificate": {
                         "SslSupportMethod": "sni-only",
                         "MinimumProtocolVersion": "TLSv1.2_2018",
-                        "CloudFrontDefaultCertificate": false,
                         "AcmCertificateArn": { "Ref": "AvatrCertificate" }
                     }
                 }
+            }
+        },
+
+        "AvatrIPv4DNSRecord": {
+            "Type": "AWS::Route53::RecordSet",
+            "Properties": {
+                "Name": { "Ref": "DomainName" },
+                "AliasTarget": {
+                    "DNSName": { "Fn::GetAtt" : [ "AvatrCloudFrontDistribution", "DomainName" ] },
+                    "HostedZoneId": "Z2FDTNDATAQYW2"
+                },
+                "HostedZoneId": { "Ref": "AvatrHostedZone" },
+                "Type": "A"
+            }
+        },
+
+        "AvatrIPv6DNSRecord": {
+            "Type": "AWS::Route53::RecordSet",
+            "Properties": {
+                "Name": { "Ref": "DomainName" },
+                "AliasTarget": {
+                    "DNSName": { "Fn::GetAtt" : [ "AvatrCloudFrontDistribution", "DomainName" ] },
+                    "HostedZoneId": "Z2FDTNDATAQYW2"
+                },
+                "HostedZoneId": { "Ref": "AvatrHostedZone" },
+                "Type": "AAAA"
             }
         }
 
