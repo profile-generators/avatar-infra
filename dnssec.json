@@ -1,0 +1,109 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "Enable DNSSEC on a Route53 HostedZone",
+    "Parameters": {
+        "HostedZoneId": {
+            "Description": "HostedZoneId",
+            "Type": "AWS::Route53::HostedZone::Id"
+        }
+    },
+    "Resources": {
+        "AvatrCMK": {
+            "Type": "AWS::KMS::Key",
+            "Properties": {
+                "Description": "Avatr main asymmetric key",
+                "Enabled": true,
+                "EnableKeyRotation": false,
+                "KeySpec": "ECC_NIST_P256",
+                "KeyUsage": "SIGN_VERIFY",
+                "KeyPolicy": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Sid": "Allow Root User Access",
+                            "Effect": "Allow",
+                            "Principal": {
+                                "AWS": {
+                                    "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:root"
+                                }
+                            },
+                            "Action": "kms:*",
+                            "Resource": "*"
+                        },
+                        {
+                            "Sid": "Allow Route 53 DNSSEC Service",
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": "dnssec-route53.amazonaws.com"
+                            },
+                            "Action": [
+                                "kms:DescribeKey",
+                                "kms:GetPublicKey",
+                                "kms:Sign"
+                            ],
+                            "Resource": "*"
+                        },
+                        {
+                            "Sid": "Allow Route 53 DNSSEC to CreateGrant",
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": "dnssec-route53.amazonaws.com"
+                            },
+                            "Action": [
+                                "kms:CreateGrant"
+                            ],
+                            "Resource": "*",
+                            "Condition": {
+                                "Bool": {
+                                    "kms:GrantIsForAWSResource": true
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+        },
+        "AvatrDNSSEC": {
+            "DependsOn": "AvatrKSK",
+            "Type": "AWS::Route53::DNSSEC",
+            "Properties": {
+                "HostedZoneId": {
+                    "Ref": "HostedZoneId"
+                }
+            }
+        },
+        "AvatrKSK": {
+            "Type": "AWS::Route53::KeySigningKey",
+            "Properties": {
+                "HostedZoneId": {
+                    "Ref": "HostedZoneId"
+                },
+                "KeyManagementServiceArn": { 
+                    "Fn::GetAtt": [ "AvatrCMK", "Arn" ] 
+                },
+                "Name": "AvatrKSK",
+                "Status": "ACTIVE"
+            }
+        }
+    },
+    "Outputs": {
+        "HostedZone": {
+            "Value": {
+                "Ref": "HostedZoneId"
+            },
+            "Description": "Route53 HostedZoneId"
+        },
+        "CMK": {
+            "Value": {
+                "Ref": "AvatrCMK"
+            },
+            "Description": "Customer Managed Key"
+        },
+        "KSK": {
+            "Value": {
+                "Ref": "AvatrKSK"
+            },
+            "Description": "Key Signing Key"
+        }
+    }
+}
