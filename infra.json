@@ -8,18 +8,94 @@
         }
     },
     "Resources": {
+        "AvatrCMK": {
+            "Type": "AWS::KMS::Key",
+            "Properties": {
+                "Description": "Avatr main asymmetric key",
+                "Enabled": true,
+                "EnableKeyRotation": false,
+                "KeySpec": "ECC_NIST_P256",
+                "KeyUsage": "SIGN_VERIFY",
+                "KeyPolicy": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Sid": "Allow Root User Access",
+                            "Effect": "Allow",
+                            "Principal": {
+                                "AWS": {
+                                    "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:root"
+                                }
+                            },
+                            "Action": "kms:*",
+                            "Resource": "*"
+                        },
+                        {
+                            "Sid": "Allow Route 53 DNSSEC Service",
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": "dnssec-route53.amazonaws.com"
+                            },
+                            "Action": [
+                                "kms:DescribeKey",
+                                "kms:GetPublicKey",
+                                "kms:Sign"
+                            ],
+                            "Resource": "*"
+                        },
+                        {
+                            "Sid": "Allow Route 53 DNSSEC to CreateGrant",
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": "dnssec-route53.amazonaws.com"
+                            },
+                            "Action": [
+                                "kms:CreateGrant"
+                            ],
+                            "Resource": "*",
+                            "Condition": {
+                                "Bool": {
+                                    "kms:GrantIsForAWSResource": true
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+        },
         "AvatrHostedZone": {
             "Type": "AWS::Route53::HostedZone",
             "Properties": {
                 "HostedZoneConfig": {
                     "Comment": "Avatr Hosted Zone"
                 },
-                "Name": { "Ref": "DomainName" }
-            },
-            "DeletionPolicy": "Retain",
-            "UpdateReplacePolicy": "Retain"
+                "Name": {
+                    "Ref": "DomainName"
+                }
+            }
         },
-
+        "AvatrDNSSEC": {
+            "DependsOn": "AvatrKSK",
+            "Type": "AWS::Route53::DNSSEC",
+            "Properties": {
+                "HostedZoneId": {
+                    "Ref": "AvatrHostedZone"
+                }
+            }
+        },
+        "AvatrKSK": {
+            "Type": "AWS::Route53::KeySigningKey",
+            "Properties": {
+                "HostedZoneId": {
+                    "Ref": "AvatrHostedZone"
+                },
+                "KeyManagementServiceArn": { 
+                    "Fn::GetAtt": [ "AvatrCMK", "Arn" ] 
+                },
+                "Name": "AvatrKSK",
+                "Status": "ACTIVE"
+            }
+        },
         "AvatrS3Bucket": {
             "Type": "AWS::S3::Bucket",
             "Properties": {
@@ -28,11 +104,12 @@
             "DeletionPolicy": "Retain",
             "UpdateReplacePolicy": "Retain"
         },
-
         "AvatrS3BucketPolicy": {
             "Type": "AWS::S3::BucketPolicy",
             "Properties": {
-                "Bucket": { "Ref": "AvatrS3Bucket" },
+                "Bucket": {
+                    "Ref": "AvatrS3Bucket"
+                },
                 "PolicyDocument": {
                     "Version": "2012-10-17",
                     "Id": "AvatarS3Bucket Read Access",
@@ -40,16 +117,38 @@
                         {
                             "Effect": "Allow",
                             "Principal": {
-                                "AWS": { "Fn::Join": [ " ", [ "arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity", { "Ref": "AvatrOriginAccessIdentity" } ] ] }
+                                "AWS": {
+                                    "Fn::Join": [
+                                        " ",
+                                        [
+                                            "arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity",
+                                            {
+                                                "Ref": "AvatrOriginAccessIdentity"
+                                            }
+                                        ]
+                                    ]
+                                }
                             },
                             "Action": "s3:GetObject",
-                            "Resource": { "Fn::Join": [ "/", [ { "Fn::GetAtt": [ "AvatrS3Bucket", "Arn" ] }, "*" ] ]}
+                            "Resource": {
+                                "Fn::Join": [
+                                    "/",
+                                    [
+                                        {
+                                            "Fn::GetAtt": [
+                                                "AvatrS3Bucket",
+                                                "Arn"
+                                            ]
+                                        },
+                                        "*"
+                                    ]
+                                ]
+                            }
                         }
                     ]
                 }
             }
         },
-
         "AvatrOriginAccessIdentity": {
             "Type": "AWS::CloudFront::CloudFrontOriginAccessIdentity",
             "Properties": {
@@ -58,7 +157,6 @@
                 }
             }
         },
-
         "AvatrCachePolicy": {
             "Type": "AWS::CloudFront::CachePolicy",
             "Properties": {
@@ -84,7 +182,6 @@
                 }
             }
         },
-
         "AvatrOriginRequestPolicy": {
             "Type": "AWS::CloudFront::OriginRequestPolicy",
             "Properties": {
@@ -103,43 +200,84 @@
                 }
             }
         },
-
         "AvatrCertificate": {
             "Type": "AWS::CertificateManager::Certificate",
             "Properties": {
                 "CertificateTransparencyLoggingPreference": "ENABLED",
-                "DomainName": { "Ref": "DomainName" },
+                "DomainName": {
+                    "Ref": "DomainName"
+                },
                 "ValidationMethod": "DNS",
-                "DomainValidationOptions": [{
-                    "DomainName": { "Ref": "DomainName" },
-                    "HostedZoneId": { "Ref": "AvatrHostedZone" }
-                }]
+                "DomainValidationOptions": [
+                    {
+                        "DomainName": {
+                            "Ref": "DomainName"
+                        },
+                        "HostedZoneId": {
+                            "Ref": "AvatrHostedZone"
+                        }
+                    }
+                ]
             }
         },
-
         "AvatrCloudFrontDistribution": {
             "Type": "AWS::CloudFront::Distribution",
             "Properties": {
                 "DistributionConfig": {
                     "Comment": "Default Avatr cloudfront distribution",
-                    "Aliases": [ { "Ref": "DomainName" } ],
-                    "Origins": [{ 
-                        "DomainName": { "Fn::GetAtt": [ "AvatrS3Bucket", "RegionalDomainName" ]},
-                        "Id": "S3Origin",
-                        "S3OriginConfig": {
-                            "OriginAccessIdentity": { "Fn::Join": 
-                                ["/", ["origin-access-identity", "cloudfront", { "Fn::GetAtt": [ "AvatrOriginAccessIdentity", "Id" ]}]]
+                    "Aliases": [
+                        {
+                            "Ref": "DomainName"
+                        }
+                    ],
+                    "Origins": [
+                        {
+                            "DomainName": {
+                                "Fn::GetAtt": [
+                                    "AvatrS3Bucket",
+                                    "RegionalDomainName"
+                                ]
+                            },
+                            "Id": "S3Origin",
+                            "S3OriginConfig": {
+                                "OriginAccessIdentity": {
+                                    "Fn::Join": [
+                                        "/",
+                                        [
+                                            "origin-access-identity",
+                                            "cloudfront",
+                                            {
+                                                "Fn::GetAtt": [
+                                                    "AvatrOriginAccessIdentity",
+                                                    "Id"
+                                                ]
+                                            }
+                                        ]
+                                    ]
+                                }
                             }
                         }
-                    }],
+                    ],
                     "DefaultCacheBehavior": {
-                        "AllowedMethods": [ "GET", "HEAD" ],
-                        "CachedMethods": [ "GET", "HEAD" ],
+                        "AllowedMethods": [
+                            "GET",
+                            "HEAD"
+                        ],
+                        "CachedMethods": [
+                            "GET",
+                            "HEAD"
+                        ],
                         "Compress": true,
-                        "TargetOriginId": { "Ref": "AvatrOriginAccessIdentity" },
+                        "TargetOriginId": {
+                            "Ref": "AvatrOriginAccessIdentity"
+                        },
                         "ViewerProtocolPolicy": "redirect-to-https",
-                        "CachePolicyId": { "Ref": "AvatrCachePolicy" },
-                        "OriginRequestPolicyId": { "Ref": "AvatrOriginRequestPolicy" }
+                        "CachePolicyId": {
+                            "Ref": "AvatrCachePolicy"
+                        },
+                        "OriginRequestPolicyId": {
+                            "Ref": "AvatrOriginRequestPolicy"
+                        }
                     },
                     "DefaultRootObject": "index.html",
                     "Enabled": true,
@@ -152,38 +290,55 @@
                     "ViewerCertificate": {
                         "SslSupportMethod": "sni-only",
                         "MinimumProtocolVersion": "TLSv1.2_2018",
-                        "AcmCertificateArn": { "Ref": "AvatrCertificate" }
+                        "AcmCertificateArn": {
+                            "Ref": "AvatrCertificate"
+                        }
                     }
                 }
             }
         },
-
         "AvatrIPv4DNSRecord": {
             "Type": "AWS::Route53::RecordSet",
             "Properties": {
-                "Name": { "Ref": "DomainName" },
+                "Name": {
+                    "Ref": "DomainName"
+                },
                 "AliasTarget": {
-                    "DNSName": { "Fn::GetAtt" : [ "AvatrCloudFrontDistribution", "DomainName" ] },
+                    "DNSName": {
+                        "Fn::GetAtt": [
+                            "AvatrCloudFrontDistribution",
+                            "DomainName"
+                        ]
+                    },
                     "HostedZoneId": "Z2FDTNDATAQYW2"
                 },
-                "HostedZoneId": { "Ref": "AvatrHostedZone" },
+                "HostedZoneId": {
+                    "Ref": "AvatrHostedZone"
+                },
                 "Type": "A"
             }
         },
-
         "AvatrIPv6DNSRecord": {
             "Type": "AWS::Route53::RecordSet",
             "Properties": {
-                "Name": { "Ref": "DomainName" },
+                "Name": {
+                    "Ref": "DomainName"
+                },
                 "AliasTarget": {
-                    "DNSName": { "Fn::GetAtt" : [ "AvatrCloudFrontDistribution", "DomainName" ] },
+                    "DNSName": {
+                        "Fn::GetAtt": [
+                            "AvatrCloudFrontDistribution",
+                            "DomainName"
+                        ]
+                    },
                     "HostedZoneId": "Z2FDTNDATAQYW2"
                 },
-                "HostedZoneId": { "Ref": "AvatrHostedZone" },
+                "HostedZoneId": {
+                    "Ref": "AvatrHostedZone"
+                },
                 "Type": "AAAA"
             }
         }
-
     },
     "Outputs": {
         "HostedZone": {
