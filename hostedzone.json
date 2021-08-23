@@ -1,0 +1,31 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "Deploy Route53 HostedZone for DomainName",
+    "Parameters": {
+        "DomainName": {
+            "Description": "Domain name for the website",
+            "Type": "String"
+        }
+    },
+    "Resources": {
+        "AvatrHostedZone": {
+            "Type": "AWS::Route53::HostedZone",
+            "Properties": {
+                "HostedZoneConfig": {
+                    "Comment": "Avatr Hosted Zone"
+                },
+                "Name": {
+                    "Ref": "DomainName"
+                }
+            }
+        }
+    },
+    "Outputs": {
+        "HostedZone": {
+            "Value": {
+                "Ref": "AvatrHostedZone"
+            },
+            "Description": "Route53 HostedZoneId"
+        }
+    }
+}
