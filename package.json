@@ -1,0 +1,24 @@
+{
+  "name": "avatar-infra",
+  "version": "1.0.0",
+  "description": "Lambda@edge function to generate permanent avatars",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/profile-generators/avatar-infra.git"
+  },
+  "author": "Xavier 'crashoz' Launey",
+  "license": "GPL-3.0-or-later",
+  "bugs": {
+    "url": "https://github.com/profile-generators/avatar-infra/issues"
+  },
+  "homepage": "https://github.com/profile-generators/avatar-infra#readme",
+  "dependencies": {
+    "aws-sdk": "^2.971.0",
+    "fast-xml-parser": "^3.19.0",
+    "sharp": "^0.29.0"
+  }
+}
