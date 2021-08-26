@@ -172,25 +172,42 @@
                             }
                         }
                     ],
-                    "CacheBehaviors": [{
-                        "AllowedMethods": [ "GET", "HEAD", "OPTIONS", "PUT", "PATCH", "POST", "DELETE" ],
-                        "CachedMethods": [ "GET", "HEAD" ],
-                        "CachePolicyId": {
-                            "Ref": "AvatrCachePolicy"
-                        },
-                        "Compress": true,
-                        "LambdaFunctionAssociations": [{
-                            "EventType": "viewer-request",
-                            "IncludeBody": true,
-                            "LambdaFunctionARN": { "Ref": "AvatrLambdaVersion" }
-                        }],
-                        "OriginRequestPolicyId": {
-                            "Ref": "AvatrOriginRequestPolicy"
-                        },
-                        "PathPattern": "/gen",
-                        "TargetOriginId": "S3Origin",
-                        "ViewerProtocolPolicy": "redirect-to-https"
-                    }],
+                    "CacheBehaviors": [
+                        {
+                            "AllowedMethods": [
+                                "GET",
+                                "HEAD",
+                                "OPTIONS",
+                                "PUT",
+                                "PATCH",
+                                "POST",
+                                "DELETE"
+                            ],
+                            "CachedMethods": [
+                                "GET",
+                                "HEAD"
+                            ],
+                            "CachePolicyId": {
+                                "Ref": "AvatrCachePolicy"
+                            },
+                            "Compress": true,
+                            "LambdaFunctionAssociations": [
+                                {
+                                    "EventType": "viewer-request",
+                                    "IncludeBody": true,
+                                    "LambdaFunctionARN": {
+                                        "Ref": "AvatrLambdaEdgeVersion"
+                                    }
+                                }
+                            ],
+                            "OriginRequestPolicyId": {
+                                "Ref": "AvatrOriginRequestPolicy"
+                            },
+                            "PathPattern": "/gen",
+                            "TargetOriginId": "S3Origin",
+                            "ViewerProtocolPolicy": "redirect-to-https"
+                        }
+                    ],
                     "DefaultCacheBehavior": {
                         "AllowedMethods": [
                             "GET",
@@ -228,10 +245,82 @@
                 }
             }
         },
-        "AvatrLambdaRole": {
+        "AvatrLambdaProcessingRole": {
             "Type": "AWS::IAM::Role",
             "Properties": {
-                "Description": "Lambda@edge role",
+                "Description": "Processing role",
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": [
+                                    "lambda.amazonaws.com"
+                                ]
+                            },
+                            "Action": "sts:AssumeRole"
+                        }
+                    ]
+                },
+                "Policies": [
+                    {
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": [
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "logs:CreateLogGroup",
+                                        "logs:CreateLogStream",
+                                        "logs:PutLogEvents"
+                                    ],
+                                    "Resource": [
+                                        "arn:aws:logs:*:*:*"
+                                    ]
+                                },
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "s3:PutObject",
+                                        "s3:GetObject",
+                                        "s3:ListBucket"
+                                    ],
+                                    "Resource": [
+                                        {
+                                            "Fn::GetAtt": [
+                                                "AvatrS3Bucket",
+                                                "Arn"
+                                            ]
+                                        },
+                                        {
+                                            "Fn::Join": [
+                                                "/",
+                                                [
+                                                    {
+                                                        "Fn::GetAtt": [
+                                                            "AvatrS3Bucket",
+                                                            "Arn"
+                                                        ]
+                                                    },
+                                                    "*"
+                                                ]
+                                            ]
+                                        }
+                                    ]
+                                }
+                            ]
+                        },
+                        "PolicyName": "LambdaProcessingExecutionRole"
+                    }
+                ],
+                "RoleName": "LambdaProcessingRole"
+            }
+        },
+        "AvatrLambdaEdgeRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "Description": "Edge role",
                 "AssumeRolePolicyDocument": {
                     "Version": "2012-10-17",
                     "Statement": [
@@ -266,12 +355,41 @@
                                 {
                                     "Effect": "Allow",
                                     "Action": [
-                                        "s3:PutObject",
                                         "s3:GetObject",
                                         "s3:ListBucket"
                                     ],
                                     "Resource": [
-                                        { "Fn::GetAtt": [ "AvatrS3Bucket", "Arn" ] }
+                                        {
+                                            "Fn::GetAtt": [
+                                                "AvatrS3Bucket",
+                                                "Arn"
+                                            ]
+                                        },
+                                        {
+                                            "Fn::Join": [
+                                                "/",
+                                                [
+                                                    {
+                                                        "Fn::GetAtt": [
+                                                            "AvatrS3Bucket",
+                                                            "Arn"
+                                                        ]
+                                                    },
+                                                    "*"
+                                                ]
+                                            ]
+                                        }
+                                    ]
+                                },
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "lambda:InvokeFunction"
+                                    ],
+                                    "Resource": [
+                                        {
+                                            "Ref": "AvatrLambdaProcessingVersion"
+                                        }
                                     ]
                                 }
                             ]
@@ -282,26 +400,70 @@
                 "RoleName": "LambdaEdgeRole"
             }
         },
-        "AvatrLambdaFunction": {
+        "AvatrLambdaProcessingFunction": {
             "Type": "AWS::Lambda::Function",
             "Properties": {
-                "Description": "Lambda@edge for avatar generation",
+                "Description": "Processing function for avatar generation",
+                "FunctionName": "AvatrProcessing",
                 "Code": {
                     "ZipFile": "exports.handler = function (event, context) {}"
                 },
                 "Handler": "index.handler",
                 "MemorySize": 128,
                 "PackageType": "Zip",
-                "Role": { "Fn::GetAtt": [ "AvatrLambdaRole", "Arn" ] },
+                "Role": {
+                    "Fn::GetAtt": [
+                        "AvatrLambdaProcessingRole",
+                        "Arn"
+                    ]
+                },
                 "Runtime": "nodejs14.x",
                 "Timeout": 5
             }
         },
-        "AvatrLambdaVersion": {
+        "AvatrLambdaProcessingVersion": {
             "Type": "AWS::Lambda::Version",
             "Properties": {
-                "Description": "Lambda@edge function version",
-                "FunctionName": { "Fn::GetAtt": [ "AvatrLambdaFunction", "Arn" ] }
+                "Description": "Processing function version",
+                "FunctionName": {
+                    "Fn::GetAtt": [
+                        "AvatrLambdaProcessingFunction",
+                        "Arn"
+                    ]
+                }
+            }
+        },
+        "AvatrLambdaEdgeFunction": {
+            "Type": "AWS::Lambda::Function",
+            "Properties": {
+                "Description": "Edge async processing call",
+                "FunctionName": "AvatrEdge",
+                "Code": {
+                    "ZipFile": "exports.handler = function (event, context) {}"
+                },
+                "Handler": "index.handler",
+                "MemorySize": 128,
+                "PackageType": "Zip",
+                "Role": {
+                    "Fn::GetAtt": [
+                        "AvatrLambdaEdgeRole",
+                        "Arn"
+                    ]
+                },
+                "Runtime": "nodejs14.x",
+                "Timeout": 5
+            }
+        },
+        "AvatrLambdaEdgeVersion": {
+            "Type": "AWS::Lambda::Version",
+            "Properties": {
+                "Description": "Edge function version",
+                "FunctionName": {
+                    "Fn::GetAtt": [
+                        "AvatrLambdaEdgeFunction",
+                        "Arn"
+                    ]
+                }
             }
         },
         "AvatrIPv4DNSRecord": {
