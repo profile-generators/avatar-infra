@@ -1,3 +1,4 @@
+'use strict';
 const fs = require('fs');
 const parser = require('fast-xml-parser');
 const sharp = require('sharp');
@@ -5,7 +6,7 @@ const AWS = require('aws-sdk');
 
 const S3 = new AWS.S3();
 
-const bucket = 'hello';
+const bucket = 'avatrinfra-avatrs3bucket-qomgoacqsllu';
 
 const options = {
   attributeNamePrefix: "",
@@ -139,8 +140,7 @@ async function renderSVG(svg) {
   return sharp(Buffer.from(svg))
     .resize(256, 256)
     .png({ compressionLevel: 9 })
-    .toFile('output.png');
-  //  .toBuffer();
+    .toBuffer();
 }
 
 async function getPart(key) {
@@ -150,8 +150,9 @@ async function getPart(key) {
   };
 
   const data = await S3.getObject(params).promise();
+  const dataString = data.Body.toString('utf-8');
 
-  return data;
+  return parsePart(dataString);
 }
 
 async function keyExists(key) {
@@ -160,9 +161,13 @@ async function keyExists(key) {
     Key: key
   };
 
-  const data = await S3.headObject(params).promise();
+  try {
+    await S3.headObject(params).promise();
+  } catch (e) {
+    return false;
+  }
 
-  return data.err == null;
+  return true;
 }
 
 async function uploadPNG(key, buffer) {
@@ -174,7 +179,7 @@ async function uploadPNG(key, buffer) {
     CacheControl: 'public, max-age=604800, immutable'
   }
 
-  const data = await S3.putObject(params).promise();
+  await S3.putObject(params).promise();
 }
 
 const letters = 'abcdefghijklmnopqrstuvwxyz0123456789';
@@ -186,29 +191,64 @@ function randomName(size) {
   return name;
 }
 
-function run() {
-  const part = fs.readFileSync('parts/hair/hair_0000.svg', { encoding: 'utf-8' });
+const partNames = [
+  "backhair", "bust", "neck",
+  "ears", "head", "eyes", "eyebrows",
+  "nose", "mouth", "freckles", "hair",
+  "glasses", "hat"
+];
 
-  const palette = {
-    'flesh': '#ff0000',
-    'hair': '#00ff00'
-  };
+const palette = [
+  'flesh', 'flesh2', 'flesh3',
+  'hair', 'hair2', 'eye',
+  'p1', 'p2', 'p3', 'p4'
+];
 
-  const parts = [ parsePart(part) ];
-  const svg = buildSVG(parts, palette);
+const colorRegex = /^#[0-9a-f]{6}$/;
+function checkInput(body) {
+  if (body.parts == null || body.palette == null) {
+    return false;
+  }
 
-  renderSVG(svg);
+  if (!Array.isArray(body.parts)) {
+    return false;
+  }
 
-  console.log(randomName(8));
+  if (body.parts.length != 13) {
+    return false;
+  }
+
+  if (body.parts.some(x => x !== parseInt(x))) {
+    return false
+  }
+
+  if (typeof body.palette !== 'object') {
+    return false;
+  }
+
+  const paletteSet = new Set(palette);
+  for (let key in body.palette) {
+    if (!paletteSet.has(key)) {
+      return false;
+    }
+    paletteSet.delete(key);
+
+    if (!colorRegex.test(body.palette[key])) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
-'use strict';
+
+const errorResponse = {
+  status: '400',
+  statusDescription: 'Bad Request',
+  headers: {},
+};
+
 exports.handler = async (event, context) => {
-
-  //Get contents of response
-  //const response = event.Records[0].cf.response;
-  //const headers = response.headers;
-
   const request = event.Records[0].cf.request;
 
   const url = request.uri;
@@ -217,17 +257,52 @@ exports.handler = async (event, context) => {
   console.log(url);
   console.log(body);
 
+  if (!checkInput(body)) {
+    return errorResponse;
+  }
+
+  console.log('input ok!');
+
+  const partsPromises  = [];
+  for (const [i, partIndex] of body.parts.entries()) {
+    const partName = partNames[i];
+    const filename = `${partName}_${partIndex.toString().padStart(4, '0')}.svg`;
+    partsPromises.push(
+      getPart(`parts/${partName}/${filename}`)
+    );
+  }
+
+  let parts;
+  try {
+    parts = await Promise.all(partsPromises);
+  } catch (e) {
+    console.log(e);
+    return errorResponse;
+  }
+
+  const palette = body.palette;
+
+  const svg = buildSVG(parts, palette);
+
+  const png = await renderSVG(svg);
+  
+  let key;
+  while (true) {
+    key = `p/${randomName(8)}`;
+    if (!(await keyExists(key))) {
+      break;
+    }
+  }
+
+  await uploadPNG(key, png);
+
   const response = {
     status: '200',
     statusDescription: 'OK',
-    headers: {
-      
-    },
-    body: ''
+    headers: {},
+    body: key
   };
 
   //Return modified response
   return response;
 };
-
-run();
