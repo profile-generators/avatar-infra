@@ -1,4 +1,6 @@
-const aws = require('aws-sdk');
+'use strict';
+const AWS = require('aws-sdk');
+const lambda = new AWS.Lambda({ 'region': 'us-east-1' });
 const S3 = new AWS.S3();
 const bucket = 'avatrinfra-avatrs3bucket-qomgoacqsllu';
 
@@ -24,12 +26,23 @@ function randomName(size) {
   return name;
 }
 
+const palette = [
+  'flesh', 'flesh2', 'flesh3',
+  'hair', 'hair2', 'eye',
+  'p1', 'p2', 'p3', 'p4'
+];
 const colorRegex = /^#[0-9a-f]{6}$/;
 function checkInput(event) {
   if (event.Records[0].cf.request.body == null) {
     return false;
   }
-  const body = event.Records[0].cf.request.body.data;
+
+  let body;
+  try {
+    body = JSON.parse(Buffer.from(event.Records[0].cf.request.body.data, 'base64').toString());
+  } catch (e) {
+    return false;
+  }
 
   if (body.parts == null || body.palette == null) {
     return false;
@@ -44,7 +57,7 @@ function checkInput(event) {
   }
 
   if (body.parts.some(x => x !== parseInt(x))) {
-    return false
+    return false;
   }
 
   if (typeof body.palette !== 'object') {
@@ -63,7 +76,7 @@ function checkInput(event) {
     }
   }
 
-  return true;
+  return body;
 }
 
 const clientErrorResponse = {
@@ -79,11 +92,11 @@ const serverErrorResponse = {
 };
 
 exports.handler = async (event, context) => {
-  if (!checkInput(event)) {
+  const body = checkInput(event);
+
+  if (!body) {
     return clientErrorResponse;
   }
-
-  const body = event.Records[0].cf.request.body.data;
 
   let key;
   while (true) {
@@ -92,21 +105,28 @@ exports.handler = async (event, context) => {
       break;
     }
   }
+
+  body.key = key;
   
   const params = {
-    FunctionName: 'AvatrProcessing:1',
+    FunctionName: 'arn:aws:lambda:us-east-1:225875088858:function:AvatrProcessing:7',
     InvocationType: 'Event',
     LogType: 'None',
     ClientContext: '',
-    Payload: body,
-    Qualifier: '1'
-  }
+    Payload: Buffer.from(JSON.stringify(body), 'utf-8'),
+    Qualifier: '7'
+  };
 
   try {
-    const res = await lambda.invoke(params).promise();
+    await lambda.invoke(params).promise();
   } catch (e) {
     console.log(e);
-    return serverErrorResponse;
+    return {
+      status: '200',
+      statusDescription: 'OK',
+      headers: {},
+      body: e.stack
+    };
   }
 
   return {

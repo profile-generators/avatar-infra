@@ -129,14 +129,10 @@ function buildSVG(parts, palette) {
   doc.svg.g = layers;
   doc.svg.metadata['rdf:RDF']['cc:Work']['dc:contributor']['cc:Agent']['dc:title'] = [...contributors].join(', ');
 
-  console.log(doc);
-
   return jsonParser.parse(doc);
 }
 
 async function renderSVG(svg) {
-  console.log(svg)
-
   return sharp(Buffer.from(svg))
     .resize(256, 256)
     .png({ compressionLevel: 9 })
@@ -155,21 +151,6 @@ async function getPart(key) {
   return parsePart(dataString);
 }
 
-async function keyExists(key) {
-  const params = {
-    Bucket: bucket,
-    Key: key
-  };
-
-  try {
-    await S3.headObject(params).promise();
-  } catch (e) {
-    return false;
-  }
-
-  return true;
-}
-
 async function uploadPNG(key, buffer) {
   const params = {
     Bucket: bucket,
@@ -182,15 +163,6 @@ async function uploadPNG(key, buffer) {
   await S3.putObject(params).promise();
 }
 
-const letters = 'abcdefghijklmnopqrstuvwxyz0123456789';
-function randomName(size) {
-  let name = "";
-  for (let i=0; i < size; i++) {
-    name += letters[Math.floor(Math.random() * letters.length)];
-  }
-  return name;
-}
-
 const partNames = [
   "backhair", "bust", "neck",
   "ears", "head", "eyes", "eyebrows",
@@ -198,70 +170,8 @@ const partNames = [
   "glasses", "hat"
 ];
 
-const palette = [
-  'flesh', 'flesh2', 'flesh3',
-  'hair', 'hair2', 'eye',
-  'p1', 'p2', 'p3', 'p4'
-];
-
-const colorRegex = /^#[0-9a-f]{6}$/;
-function checkInput(body) {
-  if (body.parts == null || body.palette == null) {
-    return false;
-  }
-
-  if (!Array.isArray(body.parts)) {
-    return false;
-  }
-
-  if (body.parts.length != 13) {
-    return false;
-  }
-
-  if (body.parts.some(x => x !== parseInt(x))) {
-    return false
-  }
-
-  if (typeof body.palette !== 'object') {
-    return false;
-  }
-
-  const paletteSet = new Set(palette);
-  for (let key in body.palette) {
-    if (!paletteSet.has(key)) {
-      return false;
-    }
-    paletteSet.delete(key);
-
-    if (!colorRegex.test(body.palette[key])) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-
-const errorResponse = {
-  status: '400',
-  statusDescription: 'Bad Request',
-  headers: {},
-};
-
 exports.handler = async (event, context) => {
-  const request = event.Records[0].cf.request;
-
-  const url = request.uri;
-  const body = request.body.data;
-
-  console.log(url);
-  console.log(body);
-
-  if (!checkInput(body)) {
-    return errorResponse;
-  }
-
-  console.log('input ok!');
+  const body = event;
 
   const partsPromises  = [];
   for (const [i, partIndex] of body.parts.entries()) {
@@ -277,7 +187,7 @@ exports.handler = async (event, context) => {
     parts = await Promise.all(partsPromises);
   } catch (e) {
     console.log(e);
-    return errorResponse;
+    return false;
   }
 
   const palette = body.palette;
@@ -286,23 +196,7 @@ exports.handler = async (event, context) => {
 
   const png = await renderSVG(svg);
   
-  let key;
-  while (true) {
-    key = `p/${randomName(8)}`;
-    if (!(await keyExists(key))) {
-      break;
-    }
-  }
+  await uploadPNG(body.key, png);
 
-  await uploadPNG(key, png);
-
-  const response = {
-    status: '200',
-    statusDescription: 'OK',
-    headers: {},
-    body: key
-  };
-
-  //Return modified response
-  return response;
+  return true;
 };
